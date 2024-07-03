@@ -423,8 +423,7 @@ public class FlowMonitorPane extends JPanel {
 
     private static void sendFlowToServer(String flowData, String urlServer) {
         try {
-            System.out.println("Enviando flujo de datos al servidor:");
-            System.out.println(flowData);
+            System.out.println("Enviando flujo de datos al servidor...");
 
             URL url = new URL(urlServer+"/receive_flow");
             //URL url = new URL("http://127.0.0.1:5000/receive_flow");
@@ -448,7 +447,7 @@ public class FlowMonitorPane extends JPanel {
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()))) {
                     String response = in.readLine();
-                    System.out.println("Respuesta del servidor: " + response);
+                    System.out.println("Flujo de datos enviado");
                 }
             } else {
                 System.out.println("Error al enviar el flujo al servidor. Código de respuesta: " + responseCode);
