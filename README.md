@@ -1,3 +1,7 @@
+# CICFlowMeter
+
+CICFlowMeter es una herramienta de captura de tráfico que se ha modificado para capturar el tráfico de una IP destino específica. Estos flujos de datos se envían a un servidor definido por el usuario. La forma de usar la herramienta es igual que la original.
+
 ## Install jnetpcap local repo
 
 for linux, sudo is a prerequisite

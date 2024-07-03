@@ -12,6 +12,8 @@ import cic.cs.unb.ca.jnetpcap.worker.TrafficFlowWorker;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jnetpcap.PcapIf;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import cic.cs.unb.ca.jnetpcap.worker.InsertCsvRow;
@@ -23,14 +25,20 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.File;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import java.net.Socket;
 
 public class FlowMonitorPane extends JPanel {
     protected static final Logger logger = LoggerFactory.getLogger(FlowMonitorPane.class);
@@ -297,6 +305,35 @@ public class FlowMonitorPane extends JPanel {
 
     private void startTrafficFlow() {
 
+        // Muestra un diálogo para pedir la dirección IP y la URL del servidor
+        UIManager.put("OptionPane.minimumSize", new Dimension(0, 0));
+
+        JPanel panel = new JPanel(new GridLayout(2, 2));
+        JLabel labelIP = new JLabel("Ingrese la direccion IP de la cual quiere capturar el trafico:");
+        JTextField fieldIP = new JTextField();
+        JLabel labelURL = new JLabel("Ingrese la URL del servidor al que desea enviar los datos:");
+        JTextField fieldURL = new JTextField();
+
+        panel.add(labelIP);
+        panel.add(fieldIP);
+        panel.add(labelURL);
+        panel.add(fieldURL);
+
+        int result = JOptionPane.showConfirmDialog(this.getParent(), panel, "Captura de Trafico", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) {
+            // El usuario canceló el diálogo
+            return;
+        }
+
+        String targetIP = fieldIP.getText();
+        String serverUrl = fieldURL.getText();
+
+        if (targetIP == null || targetIP.isEmpty() || serverUrl == null || serverUrl.isEmpty()) {
+            // El usuario no proporcionó ambos campos
+            return;
+        }
+
         String ifName = list.getSelectedValue().name();
 
         if (mWorker != null && !mWorker.isCancelled()) {
@@ -310,7 +347,7 @@ public class FlowMonitorPane extends JPanel {
                 lblStatus.setText((String) event.getNewValue());
                 lblStatus.validate();
             }else if (TrafficFlowWorker.PROPERTY_FLOW.equalsIgnoreCase(event.getPropertyName())) {
-                insertFlow((BasicFlow) event.getNewValue());
+                insertFlow((BasicFlow) event.getNewValue(), targetIP, serverUrl);
             }else if ("state".equals(event.getPropertyName())) {
                 switch (task.getState()) {
                     case STARTED:
@@ -363,21 +400,61 @@ public class FlowMonitorPane extends JPanel {
         }
     }
 
-    private void insertFlow(BasicFlow flow) {
+    private void insertFlow(BasicFlow flow, String targetIP, String serverUrl) {
         List<String> flowStringList = new ArrayList<>();
         List<String[]> flowDataList = new ArrayList<>();
-        String flowDump = flow.dumpFlowBasedFeaturesEx();
-        flowStringList.add(flowDump);
-        flowDataList.add(StringUtils.split(flowDump, ","));
+        if(Objects.equals(flow.getDstIP(), targetIP)){
+            String flowDump = flow.dumpFlowBasedFeaturesEx();
+            flowStringList.add(flowDump);
+            flowDataList.add(StringUtils.split(flowDump, ","));
 
-        //write flows to csv file
-        String header  = FlowFeature.getHeader();
-        String path = FlowMgr.getInstance().getSavePath();
-        String filename = LocalDate.now().toString() + FlowMgr.FLOW_SUFFIX;
-        csvWriterThread.execute(new InsertCsvRow(header, flowStringList, path, filename));
+            //write flows to csv file
+            String header  = FlowFeature.getHeader();
+            String path = FlowMgr.getInstance().getSavePath();
+            String filename = LocalDate.now().toString() + FlowMgr.FLOW_SUFFIX;
+            csvWriterThread.execute(new InsertCsvRow(header, flowStringList, path, filename));
 
-        //insert flows to JTable
-        SwingUtilities.invokeLater(new InsertTableRow(defaultTableModel,flowDataList,lblFlowCnt));
-        btnSave.setEnabled(true);
+            //insert flows to JTable
+            SwingUtilities.invokeLater(new InsertTableRow(defaultTableModel,flowDataList,lblFlowCnt));
+            btnSave.setEnabled(true);
+            sendFlowToServer(flowDump, serverUrl);
+        }
+    }
+
+    private static void sendFlowToServer(String flowData, String urlServer) {
+        try {
+            System.out.println("Enviando flujo de datos al servidor:");
+            System.out.println(flowData);
+
+            URL url = new URL(urlServer+"/receive_flow");
+            //URL url = new URL("http://127.0.0.1:5000/receive_flow");
+            HttpURLConnection con = (HttpURLConnection) url.openConnection();
+            con.setRequestMethod("POST");
+            con.setRequestProperty("Content-Type", "application/json");
+            con.setDoOutput(true);
+
+            // Construir el JSON de los datos del flujo
+            JSONObject jsonInput = new JSONObject();
+            jsonInput.put("flowData", flowData);
+
+            // Enviar los datos del flujo al servidor
+            try (OutputStream os = con.getOutputStream()) {
+                byte[] input = jsonInput.toString().getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            // Manejar la respuesta del servidor
+            int responseCode = con.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                try (BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()))) {
+                    String response = in.readLine();
+                    System.out.println("Respuesta del servidor: " + response);
+                }
+            } else {
+                System.out.println("Error al enviar el flujo al servidor. Código de respuesta: " + responseCode);
+            }
+        } catch (IOException | JSONException e) {
+            e.printStackTrace();
+        }
     }
 }
